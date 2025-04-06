@@ -1,0 +1,3 @@
+﻿<Project>
+  <Import Project="../build/QS.Backend.props" />
+</Project>
