@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
+import { useSession, signOut } from 'next-auth/react';
 import { EditorState } from '@codemirror/state';
 import { EditorView, keymap, lineNumbers, highlightActiveLineGutter, highlightActiveLine, Decoration, DecorationSet, ViewPlugin, ViewUpdate, WidgetType } from '@codemirror/view';
 import { markdown } from '@codemirror/lang-markdown';
@@ -9,23 +10,28 @@ import { searchKeymap, highlightSelectionMatches } from '@codemirror/search';
 import { autocompletion, completionKeymap } from '@codemirror/autocomplete';
 import { oneDark } from '@codemirror/theme-one-dark';
 import { syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language';
+// データベース版を使用
+import { Article, saveArticle, updateArticle } from '../lib/articleStorageDB';
+import ArticleSidebar from './ArticleSidebar';
+import ImportExportButtons from './ImportExportButtons';
 
 
 // Live Previewプラグインを作成する関数
-const createLivePreviewPlugin = (isDarkMode: boolean) => ViewPlugin.fromClass(class {
-  decorations: DecorationSet = Decoration.none;
+const createLivePreviewPlugin = (isDarkMode: boolean) => ViewPlugin.fromClass(
+  class {
+    decorations: DecorationSet = Decoration.none;
 
-  constructor(view: EditorView) {
-    this.buildDecorations(view);
-  }
-
-  update(update: ViewUpdate) {
-    if (update.docChanged || update.viewportChanged || update.selectionSet) {
-      this.buildDecorations(update.view);
+    constructor(view: EditorView) {
+      this.buildDecorations(view);
     }
-  }
 
-  buildDecorations(view: EditorView) {
+    update(update: ViewUpdate) {
+      if (update.docChanged || update.viewportChanged || update.selectionSet) {
+        this.buildDecorations(update.view);
+      }
+    }
+
+    buildDecorations(view: EditorView) {
     const decorations = [];
     const doc = view.state.doc;
     const selection = view.state.selection.main;
@@ -433,18 +439,22 @@ const createLivePreviewPlugin = (isDarkMode: boolean) => ViewPlugin.fromClass(cl
       }
     }
     
-    // decorations配列を位置でソートしてからDecoration.setに渡す
-    decorations.sort((a, b) => a.from - b.from);
-    const sortedDecorations = decorations.map(d => d.decoration.range(d.from, d.to));
-    this.decorations = Decoration.set(sortedDecorations);
+      // decorations配列を位置でソートしてからDecoration.setに渡す
+      decorations.sort((a, b) => a.from - b.from);
+      const sortedDecorations = decorations.map(d => d.decoration.range(d.from, d.to));
+      this.decorations = Decoration.set(sortedDecorations);
+    }
+  },
+  {
+    decorations: v => v.decorations,
   }
-}, {
-  decorations: v => v.decorations
-}));
+);
 
 export default function ObsidianEditor() {
+  const { data: session } = useSession();
   const editorRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
+  const [currentArticle, setCurrentArticle] = useState<Article | null>(null);
   const [content, setContent] = useState<string>(`# Welcome to Kyuubi Live Preview! 
 
 これは**Obsidian**の*Live Preview*モードを再現しています。
@@ -481,9 +491,71 @@ export default function ObsidianEditor() {
 行を選択してみてください！Markdown記法が表示されます。`);
 
   const [isDarkMode, setIsDarkMode] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+
+  // 記事を選択したときの処理
+  const handleArticleSelect = async (article: Article) => {
+    // 現在の記事を保存
+    if (currentArticle && content !== currentArticle.content) {
+      await updateArticle(currentArticle.id, { content });
+    }
+    
+    setCurrentArticle(article);
+    setContent(article.content);
+    
+    // エディタの内容を更新
+    if (viewRef.current) {
+      viewRef.current.dispatch({
+        changes: { from: 0, to: viewRef.current.state.doc.length, insert: article.content },
+      });
+    }
+  };
+
+  // 新規記事作成
+  const handleNewArticle = async () => {
+    const newArticle = await saveArticle({
+      title: '新しい記事',
+      content: '# 新しい記事\n\nここから編集を始めてください。',
+      tags: [],
+    });
+    handleArticleSelect(newArticle);
+  };
+
+  // 記事を保存
+  const saveCurrentArticle = useCallback(async () => {
+    if (!currentArticle) return;
+    
+    setIsSaving(true);
+    try {
+      // タイトルをコンテンツの最初の#見出しから抽出
+      const titleMatch = content.match(/^#\s+(.+)/m);
+      const title = titleMatch ? titleMatch[1].trim() : currentArticle.title;
+      
+      // タグをコンテンツから抽出
+      const tagMatches = content.match(/#(\w+)/g);
+      const tags = tagMatches ? Array.from(new Set(tagMatches.map(tag => tag.slice(1)))) : [];
+      
+      await updateArticle(currentArticle.id, { 
+        title, 
+        content, 
+        tags 
+      });
+      
+      setCurrentArticle(prev => prev ? { ...prev, title, content, tags } : null);
+    } catch (error) {
+      console.error('保存エラー:', error);
+    } finally {
+      setIsSaving(false);
+    }
+  }, [currentArticle, content]);
+
+  // 自動保存機能は削除（手動保存のみ）
 
   useEffect(() => {
-    if (!editorRef.current || viewRef.current) return;
+    if (!editorRef.current) return;
+    
+    // 既存のエディタがある場合は破棄しない（初回のみ作成）
+    if (viewRef.current) return;
 
     const startState = EditorState.create({
       doc: content,
@@ -502,12 +574,22 @@ export default function ObsidianEditor() {
           ...searchKeymap,
           ...historyKeymap,
           ...completionKeymap,
+          // Ctrl+S で手動保存
+          {
+            key: 'Ctrl-s',
+            mac: 'Cmd-s',
+            run: () => {
+              // viewRef経由で最新の関数を呼び出す
+              const saveBtn = document.querySelector('[data-save-button]') as HTMLButtonElement;
+              if (saveBtn) saveBtn.click();
+              return true;
+            }
+          }
         ]),
         EditorView.updateListener.of((update) => {
           if (update.docChanged) {
             const newContent = update.state.doc.toString();
             setContent(newContent);
-            localStorage.setItem('kyuubi-content', newContent);
           }
         }),
         ...(isDarkMode ? [oneDark] : []),
@@ -516,7 +598,8 @@ export default function ObsidianEditor() {
           '&': {
             fontSize: '16px',
             fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-            height: '100%',
+            height: 'calc(100vh - 140px)',
+            maxHeight: 'calc(100vh - 140px)',
           },
           '.cm-content': {
             padding: '20px',
@@ -537,6 +620,8 @@ export default function ObsidianEditor() {
           },
           '.cm-scroller': {
             fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+            overflow: 'auto',
+            height: '100%',
           },
           
           // Live Preview ウィジェットのスタイル
@@ -675,69 +760,128 @@ export default function ObsidianEditor() {
 
     viewRef.current = view;
 
-    // ローカルストレージから読み込み
-    const saved = localStorage.getItem('kyuubi-content');
-    if (saved) {
-      view.dispatch({
-        changes: { from: 0, to: view.state.doc.length, insert: saved },
-      });
-    }
-
     return () => {
       view.destroy();
       viewRef.current = null;
     };
+  }, []); // 依存配列を空にして、初回のみ実行
+  
+  // isDarkModeが変更された場合の処理
+  useEffect(() => {
+    if (!viewRef.current) return;
+    
+    // Live Previewプラグインを更新
+    viewRef.current.dispatch({
+      effects: [
+        // プラグインの再作成が必要な場合はここで処理
+      ]
+    });
   }, [isDarkMode]);
 
   return (
-    <div className={`h-screen flex flex-col ${isDarkMode ? 'dark bg-slate-900' : 'bg-white'}`}>
-      {/* ツールバー */}
-      <div className={`border-b ${isDarkMode ? 'border-slate-700 bg-slate-800' : 'border-gray-200 bg-gray-50'} px-4 py-2 flex items-center justify-between`}>
-        <div className="flex items-center space-x-4">
-          <h1 className={`text-lg font-semibold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-            🦊 Kyuubi Live Preview
-          </h1>
-          <div className="flex items-center space-x-2">
+    <div className={`h-screen flex ${isDarkMode ? 'dark bg-slate-900' : 'bg-white'}`}>
+      {/* サイドバー */}
+      <ArticleSidebar
+        currentArticleId={currentArticle?.id}
+        onArticleSelect={handleArticleSelect}
+        onNewArticle={handleNewArticle}
+        isDarkMode={isDarkMode}
+      />
+
+      {/* メインエディタエリア */}
+      <div className="flex-1 flex flex-col h-full">
+        {/* ツールバー */}
+        <div className={`px-4 py-3 border-b flex items-center justify-between ${
+          isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-gray-50 border-gray-200'
+        }`}>
+          <div className="flex items-center gap-4">
+            <h1 className={`font-semibold ${
+              isDarkMode ? 'text-slate-200' : 'text-gray-800'
+            }`}>
+              {currentArticle?.title || 'Kyuubi Editor'}
+            </h1>
+            
+            {isSaving && (
+              <span className={`text-sm ${
+                isDarkMode ? 'text-slate-400' : 'text-gray-500'
+              }`}>
+                保存中...
+              </span>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2">
+            <ImportExportButtons
+              currentArticle={currentArticle}
+              onArticleImported={handleArticleSelect}
+              isDarkMode={isDarkMode}
+            />
+            
+            <div className={`w-px h-6 ${isDarkMode ? 'bg-slate-600' : 'bg-gray-300'}`} />
+            
             <button
-              onClick={() => {
-                const blob = new Blob([content], { type: 'text/markdown' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = 'note.md';
-                a.click();
-                URL.revokeObjectURL(url);
-              }}
-              className={`px-3 py-1 text-sm rounded-md transition-colors ${
+              onClick={() => saveCurrentArticle()}
+              data-save-button
+              className={`px-3 py-1 rounded-lg text-sm transition-colors ${
                 isDarkMode 
-                  ? 'bg-indigo-600 hover:bg-indigo-700 text-white' 
-                  : 'bg-indigo-500 hover:bg-indigo-600 text-white'
+                  ? 'bg-green-700 hover:bg-green-600 text-white' 
+                  : 'bg-green-600 hover:bg-green-700 text-white'
               }`}
             >
-              Export
+              💾 保存
             </button>
+            
+            <button
+              onClick={() => setIsDarkMode(!isDarkMode)}
+              className={`p-2 rounded-lg transition-colors ${
+                isDarkMode 
+                  ? 'hover:bg-slate-700 text-slate-300' 
+                  : 'hover:bg-gray-200 text-gray-600'
+              }`}
+              title={isDarkMode ? 'ライトモード' : 'ダークモード'}
+            >
+              {isDarkMode ? '☀️' : '🌙'}
+            </button>
+
+            <div className={`w-px h-6 ${isDarkMode ? 'bg-slate-600' : 'bg-gray-300'}`} />
+
+            {/* ユーザー情報 */}
+            {session && (
+              <div className="flex items-center gap-2">
+                {session.user?.image && (
+                  <img
+                    src={session.user.image}
+                    alt="ユーザーアバター"
+                    className="w-8 h-8 rounded-full"
+                  />
+                )}
+                <div className="flex flex-col">
+                  <span className={`text-sm font-medium ${
+                    isDarkMode ? 'text-slate-200' : 'text-gray-800'
+                  }`}>
+                    {session.user?.name}
+                  </span>
+                </div>
+                <button
+                  onClick={() => signOut()}
+                  className={`px-3 py-1 rounded-lg text-sm transition-colors ${
+                    isDarkMode 
+                      ? 'bg-red-700 hover:bg-red-600 text-white' 
+                      : 'bg-red-600 hover:bg-red-700 text-white'
+                  }`}
+                  title="サインアウト"
+                >
+                  🚪 サインアウト
+                </button>
+              </div>
+            )}
           </div>
         </div>
-        <div className="flex items-center space-x-2">
-          <span className={`text-xs px-2 py-1 rounded ${isDarkMode ? 'bg-slate-700 text-slate-300' : 'bg-gray-200 text-gray-600'}`}>
-            Live Preview Mode
-          </span>
-          <button
-            onClick={() => setIsDarkMode(!isDarkMode)}
-            className={`p-2 rounded-md transition-colors ${
-              isDarkMode 
-                ? 'bg-slate-700 hover:bg-slate-600 text-white' 
-                : 'bg-gray-200 hover:bg-gray-300 text-gray-800'
-            }`}
-          >
-            {isDarkMode ? '☀️' : '🌙'}
-          </button>
-        </div>
-      </div>
 
-      {/* メインエディタ */}
-      <div className="flex-1 overflow-hidden">
-        <div ref={editorRef} className="h-full w-full" />
+        {/* エディタ */}
+        <div className="flex-1 overflow-hidden">
+          <div ref={editorRef} className="h-full w-full" />
+        </div>
       </div>
     </div>
   );
