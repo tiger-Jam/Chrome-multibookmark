@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Learning X</title>
+    <link rel="stylesheet" href="css/styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/marked@9.1.6/marked.min.js"></script>
+</head>
+<body>
+    <div class="app">
+        <!-- Sidebar -->
+        <div class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">📚 Learning X</div>
+                <button class="btn btn-primary" id="new-btn">新規作成</button>
+            </div>
+
+            <div class="search-box">
+                <input type="text" id="search-input" class="search-input" placeholder="記事を検索...">
+            </div>
+
+            <div class="articles-list" id="articles-list">
+                <div class="empty-state">
+                    <div class="empty-state-icon">📝</div>
+                    <h3>記事がありません</h3>
+                    <p>新しい記事を作成して始めましょう</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Area -->
+        <div class="main-area">
+            <div class="toolbar">
+                <button class="btn btn-primary" id="save-btn">💾 保存</button>
+                <button class="btn btn-secondary" id="delete-btn" disabled>🗑️ 削除</button>
+                <div class="toolbar-spacer"></div>
+                <button class="btn btn-secondary" id="publish-btn" disabled>🚀 公開</button>
+            </div>
+
+            <div class="editor-container">
+                <input type="text" id="editor-title" class="editor-title" placeholder="記事のタイトルを入力...">
+                <div class="editor-wrapper">
+                    <div class="editor-tabs">
+                        <button class="tab-btn active" data-tab="edit">編集</button>
+                        <button class="tab-btn" data-tab="preview">プレビュー</button>
+                        <button class="tab-btn" data-tab="split">分割表示</button>
+                    </div>
+                    <div class="editor-panes">
+                        <textarea id="editor-content" class="editor-content" placeholder="記事の内容を書いてください...
+
+# 見出し
+本文を書きます。
+
+## 小見出し
+- リストアイテム1
+- リストアイテム2
+
+**太字** や *斜体* も使えます。"></textarea>
+                        <div id="preview-content" class="preview-content" style="display: none;"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="status-bar">
+                <div class="status-left">
+                    <span id="status-text">読み込み中...</span>
+                </div>
+                <div class="status-right">
+                    <span id="word-count">0 語</span>
+                    <span>•</span>
+                    <span id="char-count">0 文字</span>
+                    <span>•</span>
+                    <span>Cmd+S で保存 • Cmd+N で新規作成</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Wait for Tauri to be ready
+        document.addEventListener('DOMContentLoaded', async function() {
+            console.log('DOM loaded');
+            console.log('window.__TAURI_INTERNALS__:', !!window.__TAURI_INTERNALS__);
+            console.log('Available window.__TAURI_INTERNALS__ keys:', window.__TAURI_INTERNALS__ ? Object.keys(window.__TAURI_INTERNALS__) : 'none');
+
+            // Use Tauri v2 invoke directly
+            let invoke;
+            if (window.__TAURI_INTERNALS__ && window.__TAURI_INTERNALS__.invoke) {
+                invoke = window.__TAURI_INTERNALS__.invoke;
+                console.log('Using __TAURI_INTERNALS__.invoke');
+            } else {
+                console.error('Tauri internal API not found');
+                document.getElementById('status-text').textContent = 'エラー: Tauriが利用できません';
+                return;
+            }
+
+            console.log('Tauri invoke function:', typeof invoke);
+
+            // Global app state
+            let currentArticle = null;
+            let articles = [];
+            let isEditing = false;
+
+            // Get DOM elements
+            const elements = {
+                searchInput: document.getElementById('search-input'),
+                articlesList: document.getElementById('articles-list'),
+                newBtn: document.getElementById('new-btn'),
+                saveBtn: document.getElementById('save-btn'),
+                deleteBtn: document.getElementById('delete-btn'),
+                publishBtn: document.getElementById('publish-btn'),
+                editorTitle: document.getElementById('editor-title'),
+                editorContent: document.getElementById('editor-content'),
+                previewContent: document.getElementById('preview-content'),
+                statusText: document.getElementById('status-text'),
+                wordCount: document.getElementById('word-count'),
+                charCount: document.getElementById('char-count')
+            };
+
+            // Tab functionality
+            let currentTab = 'edit';
+            const tabButtons = document.querySelectorAll('.tab-btn');
+            const editorPanes = document.querySelector('.editor-panes');
+
+            function switchTab(tab) {
+                currentTab = tab;
+
+                // Update tab buttons
+                tabButtons.forEach(btn => {
+                    btn.classList.toggle('active', btn.dataset.tab === tab);
+                });
+
+                // Update panes visibility
+                if (tab === 'edit') {
+                    elements.editorContent.style.display = 'block';
+                    elements.previewContent.style.display = 'none';
+                    editorPanes.classList.remove('split');
+                } else if (tab === 'preview') {
+                    elements.editorContent.style.display = 'none';
+                    elements.previewContent.style.display = 'block';
+                    editorPanes.classList.remove('split');
+                    updatePreview();
+                } else if (tab === 'split') {
+                    elements.editorContent.style.display = 'block';
+                    elements.previewContent.style.display = 'block';
+                    editorPanes.classList.add('split');
+                    updatePreview();
+                }
+            }
+
+            function updatePreview() {
+                if (currentTab === 'preview' || currentTab === 'split') {
+                    // Configure marked for better line break handling
+                    marked.setOptions({
+                        breaks: true,  // Convert single line breaks to <br>
+                        gfm: true,     // GitHub Flavored Markdown
+                        headerIds: false,
+                        mangle: false
+                    });
+
+                    const markdown = elements.editorContent.value;
+                    const html = marked.parse(markdown);
+                    elements.previewContent.innerHTML = html;
+                }
+            }
+
+            // Bind tab events
+            tabButtons.forEach(btn => {
+                btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+            });
+
+            // API functions
+            async function getArticles() {
+                console.log('Calling get_articles...');
+                try {
+                    const result = await invoke('get_articles');
+                    console.log('get_articles result:', result);
+                    return result;
+                } catch (error) {
+                    console.error('get_articles error:', error);
+                    throw error;
+                }
+            }
+
+            async function createArticle(title, content) {
+                return await invoke('create_article', { title, content, tags: [] });
+            }
+
+            async function updateArticle(id, title, content) {
+                return await invoke('update_article', { id, title: title, content: content });
+            }
+
+            async function deleteArticle(id) {
+                return await invoke('delete_article', { id });
+            }
+
+            async function publishArticle(id) {
+                return await invoke('publish_article', { id });
+            }
+
+            // UI functions
+            function setStatus(message) {
+                elements.statusText.textContent = message;
+            }
+
+            function updateCounts() {
+                const content = elements.editorContent.value;
+                const words = content.trim() ? content.trim().split(/\s+/).length : 0;
+                const chars = content.length;
+                elements.wordCount.textContent = `${words} 語`;
+                elements.charCount.textContent = `${chars} 文字`;
+            }
+
+            function updateToolbarState() {
+                elements.deleteBtn.disabled = !currentArticle;
+                elements.publishBtn.disabled = !currentArticle || currentArticle?.published || isEditing;
+            }
+
+            function renderArticlesList() {
+                if (articles.length === 0) {
+                    elements.articlesList.innerHTML = `
+                        <div class="empty-state">
+                            <div class="empty-state-icon">📝</div>
+                            <h3>記事がありません</h3>
+                            <p>新しい記事を作成して始めましょう</p>
+                        </div>
+                    `;
+                    return;
+                }
+
+                elements.articlesList.innerHTML = articles.map(article => `
+                    <div class="article-item ${currentArticle?.id === article.id ? 'active' : ''}"
+                         onclick="selectArticle('${article.id}')">
+                        <div class="article-title">${escapeHtml(article.title)}</div>
+                        <div class="article-meta">
+                            <div class="article-status">
+                                <span class="status-dot ${article.published ? 'published' : 'draft'}"></span>
+                                ${article.published ? '公開済み' : '下書き'}
+                            </div>
+                            <span>${formatDate(article.updated_at)}</span>
+                        </div>
+                    </div>
+                `).join('');
+            }
+
+            function escapeHtml(text) {
+                const div = document.createElement('div');
+                div.textContent = text;
+                return div.innerHTML;
+            }
+
+            function formatDate(dateString) {
+                const date = new Date(dateString);
+                const now = new Date();
+                const diff = now - date;
+
+                if (diff < 60000) return '今';
+                if (diff < 3600000) return `${Math.floor(diff / 60000)}分前`;
+                if (diff < 86400000) return `${Math.floor(diff / 3600000)}時間前`;
+                if (diff < 604800000) return `${Math.floor(diff / 86400000)}日前`;
+
+                return date.toLocaleDateString('ja-JP', {
+                    year: 'numeric',
+                    month: 'short',
+                    day: 'numeric'
+                });
+            }
+
+            // App functions
+            async function loadArticles() {
+                try {
+                    setStatus('記事を読み込み中...');
+                    articles = await getArticles();
+                    renderArticlesList();
+                    setStatus('準備完了');
+                } catch (error) {
+                    setStatus(`エラー: ${error}`);
+                }
+            }
+
+            function selectArticle(id) {
+                if (isEditing && !confirm('保存されていない変更があります。破棄してもよろしいですか？')) {
+                    return;
+                }
+
+                currentArticle = articles.find(a => a.id === id);
+                if (currentArticle) {
+                    elements.editorTitle.value = currentArticle.title;
+                    elements.editorContent.value = currentArticle.content;
+                    isEditing = false;
+                    renderArticlesList();
+                    updateToolbarState();
+                    updateCounts();
+                    setStatus(`編集中: ${currentArticle.title}`);
+                }
+            }
+
+            function newArticle() {
+                if (isEditing && !confirm('保存されていない変更があります。破棄してもよろしいですか？')) {
+                    return;
+                }
+
+                currentArticle = null;
+                elements.editorTitle.value = '';
+                elements.editorContent.value = '';
+                isEditing = false;
+                renderArticlesList();
+                updateToolbarState();
+                updateCounts();
+                setStatus('新しい記事');
+                elements.editorTitle.focus();
+            }
+
+            async function saveArticle() {
+                const title = elements.editorTitle.value.trim();
+                const content = elements.editorContent.value.trim();
+
+                if (!title) {
+                    alert('タイトルを入力してください');
+                    elements.editorTitle.focus();
+                    return;
+                }
+
+                if (!content) {
+                    alert('内容を入力してください');
+                    elements.editorContent.focus();
+                    return;
+                }
+
+                try {
+                    setStatus('保存中...');
+
+                    if (currentArticle) {
+                        currentArticle = await updateArticle(currentArticle.id, title, content);
+                        setStatus(`更新完了: ${title}`);
+                    } else {
+                        currentArticle = await createArticle(title, content);
+                        setStatus(`作成完了: ${title}`);
+                    }
+
+                    isEditing = false;
+                    await loadArticles();
+                    updateToolbarState();
+
+                } catch (error) {
+                    setStatus(`エラー: ${error}`);
+                }
+            }
+
+            async function deleteCurrentArticle() {
+                if (!currentArticle) {
+                    alert('削除する記事を選択してください');
+                    return;
+                }
+
+                if (!confirm(`「${currentArticle.title}」を削除してもよろしいですか？`)) {
+                    return;
+                }
+
+                try {
+                    setStatus('削除中...');
+                    await deleteArticle(currentArticle.id);
+                    setStatus('記事を削除しました');
+                    newArticle();
+                    await loadArticles();
+                } catch (error) {
+                    setStatus(`エラー: ${error}`);
+                }
+            }
+
+            async function publishCurrentArticle() {
+                if (!currentArticle) {
+                    alert('公開する記事を選択してください');
+                    return;
+                }
+
+                if (currentArticle.published) {
+                    alert('この記事は既に公開済みです');
+                    return;
+                }
+
+                try {
+                    setStatus('公開中...');
+                    currentArticle = await publishArticle(currentArticle.id);
+                    setStatus(`公開完了: ${currentArticle.title}`);
+                    await loadArticles();
+                    updateToolbarState();
+                } catch (error) {
+                    setStatus(`エラー: ${error}`);
+                }
+            }
+
+            // Event listeners
+            elements.newBtn.addEventListener('click', newArticle);
+            elements.saveBtn.addEventListener('click', saveArticle);
+            elements.deleteBtn.addEventListener('click', deleteCurrentArticle);
+            elements.publishBtn.addEventListener('click', publishCurrentArticle);
+
+            elements.editorTitle.addEventListener('input', () => {
+                isEditing = true;
+                updateCounts();
+                updateToolbarState();
+            });
+
+            elements.editorContent.addEventListener('input', () => {
+                isEditing = true;
+                updateCounts();
+                updateToolbarState();
+                updatePreview();
+            });
+
+            // Keyboard shortcuts
+            document.addEventListener('keydown', (e) => {
+                if (e.metaKey || e.ctrlKey) {
+                    switch(e.key) {
+                        case 's':
+                            e.preventDefault();
+                            saveArticle();
+                            break;
+                        case 'n':
+                            e.preventDefault();
+                            newArticle();
+                            break;
+                    }
+                }
+            });
+
+            // Make functions global for onclick handlers
+            window.selectArticle = selectArticle;
+
+            // Initialize app
+            console.log('Starting app initialization...');
+            loadArticles();
+            updateCounts();
+            console.log('App initialization complete');
+        });
+    </script>
+</body>
+</html>
