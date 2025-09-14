@@ -20,6 +20,7 @@
                 <input type="text" id="search-input" class="search-input" placeholder="記事を検索...">
             </div>
 
+
             <div class="articles-list" id="articles-list">
                 <div class="empty-state">
                     <div class="empty-state-icon">📝</div>
@@ -244,6 +245,86 @@
                 `).join('');
             }
 
+            function renderTimelineView() {
+                if (articles.length === 0) {
+                    elements.articlesList.innerHTML = `
+                        <div class="empty-state">
+                            <div class="empty-state-icon">📅</div>
+                            <h3>記事がありません</h3>
+                            <p>新しい記事を作成してタイムラインを開始しましょう</p>
+                        </div>
+                    `;
+                    return;
+                }
+
+                // Group articles by date
+                const groupedArticles = groupArticlesByDate(articles);
+
+                const timelineHtml = Object.entries(groupedArticles).map(([date, dateArticles]) => `
+                    <div class="timeline-group">
+                        <div class="timeline-date">${date}</div>
+                        <div class="timeline-articles">
+                            ${dateArticles.map(article => `
+                                <div class="timeline-article ${currentArticle?.id === article.id ? 'active' : ''}"
+                                     onclick="selectArticle('${article.id}')">
+                                    <div class="timeline-time">${formatTime(article.updated_at)}</div>
+                                    <div class="timeline-title">${escapeHtml(article.title)}</div>
+                                    <div class="timeline-preview">${escapeHtml(article.content.substring(0, 100))}</div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                `).join('');
+
+                elements.articlesList.innerHTML = timelineHtml;
+            }
+
+            function groupArticlesByDate(articles) {
+                const groups = {};
+                const today = new Date();
+                const yesterday = new Date(today);
+                yesterday.setDate(yesterday.getDate() - 1);
+
+                articles.forEach(article => {
+                    const date = new Date(article.updated_at);
+                    let dateKey;
+
+                    if (isSameDay(date, today)) {
+                        dateKey = '今日';
+                    } else if (isSameDay(date, yesterday)) {
+                        dateKey = '昨日';
+                    } else {
+                        dateKey = formatDateGroup(date);
+                    }
+
+                    if (!groups[dateKey]) {
+                        groups[dateKey] = [];
+                    }
+                    groups[dateKey].push(article);
+                });
+
+                return groups;
+            }
+
+            function isSameDay(date1, date2) {
+                return date1.getFullYear() === date2.getFullYear() &&
+                       date1.getMonth() === date2.getMonth() &&
+                       date1.getDate() === date2.getDate();
+            }
+
+            function formatDateGroup(date) {
+                const month = date.getMonth() + 1;
+                const day = date.getDate();
+                return `${month}月${day}日`;
+            }
+
+            function formatTime(dateString) {
+                const date = new Date(dateString);
+                const hours = date.getHours().toString().padStart(2, '0');
+                const minutes = date.getMinutes().toString().padStart(2, '0');
+                return `${hours}:${minutes}`;
+            }
+
             function escapeHtml(text) {
                 const div = document.createElement('div');
                 div.textContent = text;
@@ -332,8 +413,13 @@
                     setStatus('保存中...');
 
                     if (currentArticle) {
-                        currentArticle = await updateArticle(currentArticle.id, title, content);
-                        setStatus(`更新完了: ${title}`);
+                        const updated = await updateArticle(currentArticle.id, title, content);
+                        if (updated) {
+                            currentArticle = updated;
+                            setStatus(`更新完了: ${title}`);
+                        } else {
+                            throw new Error('記事の更新に失敗しました');
+                        }
                     } else {
                         currentArticle = await createArticle(title, content);
                         setStatus(`作成完了: ${title}`);
@@ -360,10 +446,14 @@
 
                 try {
                     setStatus('削除中...');
-                    await deleteArticle(currentArticle.id);
-                    setStatus('記事を削除しました');
-                    newArticle();
-                    await loadArticles();
+                    const deleted = await deleteArticle(currentArticle.id);
+                    if (deleted) {
+                        setStatus('記事を削除しました');
+                        newArticle();
+                        await loadArticles();
+                    } else {
+                        throw new Error('記事の削除に失敗しました');
+                    }
                 } catch (error) {
                     setStatus(`エラー: ${error}`);
                 }
@@ -382,10 +472,15 @@
 
                 try {
                     setStatus('公開中...');
-                    currentArticle = await publishArticle(currentArticle.id);
-                    setStatus(`公開完了: ${currentArticle.title}`);
-                    await loadArticles();
-                    updateToolbarState();
+                    const published = await publishArticle(currentArticle.id);
+                    if (published) {
+                        currentArticle = published;
+                        setStatus(`公開完了: ${currentArticle.title}`);
+                        await loadArticles();
+                        updateToolbarState();
+                    } else {
+                        throw new Error('記事の公開に失敗しました');
+                    }
                 } catch (error) {
                     setStatus(`エラー: ${error}`);
                 }
@@ -396,6 +491,7 @@
             elements.saveBtn.addEventListener('click', saveArticle);
             elements.deleteBtn.addEventListener('click', deleteCurrentArticle);
             elements.publishBtn.addEventListener('click', publishCurrentArticle);
+
 
             elements.editorTitle.addEventListener('input', () => {
                 isEditing = true;

@@ -17,3 +17,10 @@ Cargo.lock
 
 # Tauri generated
 /gen/
+
+# Database files
+/data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm

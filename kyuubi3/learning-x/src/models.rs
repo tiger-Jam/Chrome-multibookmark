@@ -22,7 +22,6 @@ pub struct CreateArticleRequest {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct UpdateArticleRequest {
-    pub id: String,
     pub title: Option<String>,
     pub content: Option<String>,
     pub tags: Option<Vec<String>>,
