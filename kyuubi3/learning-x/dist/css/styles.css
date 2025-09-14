@@ -38,12 +38,113 @@ body {
 }
 
 .sidebar {
-    width: 280px;
+    width: 320px;
     background: var(--bg-secondary);
     border-right: 1px solid var(--border-color);
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
     flex-shrink: 0;
+}
+
+/* Navigation Menu */
+.nav-menu {
+    width: 80px;
+    background: var(--bg-primary);
+    border-right: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 16px 0;
+}
+
+.logo-small {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: 24px;
+    text-align: center;
+    line-height: 1.2;
+}
+
+.nav-items {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: 100%;
+}
+
+.nav-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 12px 8px;
+    text-decoration: none;
+    color: var(--text-muted);
+    border-radius: 8px;
+    transition: all 0.2s;
+    margin: 0 8px;
+    position: relative;
+}
+
+.nav-item:hover {
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+}
+
+.nav-item.active {
+    background: var(--bg-tertiary);
+    color: var(--accent-blue);
+}
+
+.nav-item.active::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 3px;
+    height: 20px;
+    background: var(--accent-blue);
+    border-radius: 0 2px 2px 0;
+}
+
+.nav-icon {
+    font-size: 18px;
+    margin-bottom: 4px;
+}
+
+.nav-label {
+    font-size: 10px;
+    font-weight: 500;
+    text-align: center;
+    line-height: 1.2;
+}
+
+/* Articles Panel */
+.articles-panel {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-secondary);
+}
+
+.panel-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.panel-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.btn-small {
+    padding: 6px 12px;
+    font-size: 12px;
 }
 
 .sidebar-header {
@@ -593,6 +694,103 @@ body {
 
 .article-item {
     animation: fadeIn 0.2s ease-out;
+}
+
+/* Section Content Styles */
+.section-content {
+    padding: 24px;
+    height: 100%;
+    overflow-y: auto;
+}
+
+.section-header {
+    margin-bottom: 32px;
+}
+
+.section-header h2 {
+    font-size: 24px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 8px;
+}
+
+.section-header p {
+    color: var(--text-muted);
+    font-size: 14px;
+}
+
+/* User Profile Styles */
+.user-profile {
+    display: flex;
+    flex-direction: column;
+    gap: 32px;
+    max-width: 600px;
+}
+
+.profile-section, .settings-section {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 24px;
+}
+
+.profile-section h3, .settings-section h3 {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 16px;
+}
+
+.profile-item {
+    margin-bottom: 16px;
+}
+
+.profile-item label {
+    display: block;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    margin-bottom: 6px;
+}
+
+.profile-input {
+    width: 100%;
+    padding: 8px 12px;
+    background: var(--input-bg);
+    border: 1px solid var(--input-border);
+    border-radius: 6px;
+    color: var(--text-primary);
+    font-size: 14px;
+    outline: none;
+    transition: border-color 0.2s;
+}
+
+.profile-input:focus {
+    border-color: var(--input-focus);
+}
+
+.setting-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.setting-item:last-child {
+    border-bottom: none;
+}
+
+.setting-item label {
+    font-size: 14px;
+    color: var(--text-primary);
+    font-weight: 500;
+}
+
+.setting-item input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--accent-blue);
 }
 
 /* Focus styles */

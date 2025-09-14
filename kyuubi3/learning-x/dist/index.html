@@ -11,21 +11,46 @@
     <div class="app">
         <!-- Sidebar -->
         <div class="sidebar">
-            <div class="sidebar-header">
-                <div class="logo">📚 Learning X</div>
-                <button class="btn btn-primary" id="new-btn">新規作成</button>
+            <!-- Navigation Menu -->
+            <div class="nav-menu">
+                <div class="logo-small">📚 LX</div>
+                <nav class="nav-items">
+                    <a href="#" class="nav-item active" data-section="home">
+                        <span class="nav-icon">🏠</span>
+                        <span class="nav-label">ホーム</span>
+                    </a>
+                    <a href="#" class="nav-item" data-section="write">
+                        <span class="nav-icon">✍️</span>
+                        <span class="nav-label">執筆</span>
+                    </a>
+                    <a href="#" class="nav-item" data-section="notifications">
+                        <span class="nav-icon">🔔</span>
+                        <span class="nav-label">通知</span>
+                    </a>
+                    <a href="#" class="nav-item" data-section="user">
+                        <span class="nav-icon">👤</span>
+                        <span class="nav-label">ユーザー</span>
+                    </a>
+                </nav>
             </div>
 
-            <div class="search-box">
-                <input type="text" id="search-input" class="search-input" placeholder="記事を検索...">
-            </div>
+            <!-- Articles Panel -->
+            <div class="articles-panel">
+                <div class="panel-header">
+                    <div class="panel-title">📚 記事一覧</div>
+                    <button class="btn btn-primary btn-small" id="new-btn">新規</button>
+                </div>
 
+                <div class="search-box">
+                    <input type="text" id="search-input" class="search-input" placeholder="記事を検索...">
+                </div>
 
-            <div class="articles-list" id="articles-list">
-                <div class="empty-state">
-                    <div class="empty-state-icon">📝</div>
-                    <h3>記事がありません</h3>
-                    <p>新しい記事を作成して始めましょう</p>
+                <div class="articles-list" id="articles-list">
+                    <div class="empty-state">
+                        <div class="empty-state-icon">📝</div>
+                        <h3>記事がありません</h3>
+                        <p>新しい記事を作成して始めましょう</p>
+                    </div>
                 </div>
             </div>
         </div>
@@ -116,7 +141,10 @@
                 previewContent: document.getElementById('preview-content'),
                 statusText: document.getElementById('status-text'),
                 wordCount: document.getElementById('word-count'),
-                charCount: document.getElementById('char-count')
+                charCount: document.getElementById('char-count'),
+                navItems: document.querySelectorAll('.nav-item'),
+                articlesPanel: document.querySelector('.articles-panel'),
+                mainArea: document.querySelector('.main-area')
             };
 
             // Tab functionality
@@ -169,6 +197,111 @@
             // Bind tab events
             tabButtons.forEach(btn => {
                 btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+            });
+
+            // Navigation functionality
+            let currentSection = 'home';
+
+            function switchSection(sectionName) {
+                // Update active nav item
+                elements.navItems.forEach(item => {
+                    if (item.dataset.section === sectionName) {
+                        item.classList.add('active');
+                    } else {
+                        item.classList.remove('active');
+                    }
+                });
+
+                // Update UI based on section
+                currentSection = sectionName;
+                updateSectionUI();
+            }
+
+            function updateSectionUI() {
+                // Show/hide panels based on current section
+                switch (currentSection) {
+                    case 'home':
+                        elements.articlesPanel.style.display = 'none';
+                        elements.mainArea.innerHTML = `
+                            <div class="section-content">
+                                <div class="section-header">
+                                    <h2>🏠 ホーム</h2>
+                                    <p>ホーム画面は開発中です</p>
+                                </div>
+                                <div class="empty-state">
+                                    <div class="empty-state-icon">🚧</div>
+                                    <h3>開発中</h3>
+                                    <p>ホーム画面機能は現在実装中です</p>
+                                </div>
+                            </div>
+                        `;
+                        break;
+                    case 'write':
+                        elements.articlesPanel.style.display = 'flex';
+                        elements.mainArea.style.display = 'flex';
+                        // Create new article when entering write mode
+                        newArticle();
+                        break;
+                    case 'notifications':
+                        elements.articlesPanel.style.display = 'none';
+                        elements.mainArea.innerHTML = `
+                            <div class="section-content">
+                                <div class="section-header">
+                                    <h2>🔔 通知</h2>
+                                    <p>新しい通知はありません</p>
+                                </div>
+                                <div class="empty-state">
+                                    <div class="empty-state-icon">🔔</div>
+                                    <h3>通知はありません</h3>
+                                    <p>新しい通知があるとここに表示されます</p>
+                                </div>
+                            </div>
+                        `;
+                        break;
+                    case 'user':
+                        elements.articlesPanel.style.display = 'none';
+                        elements.mainArea.innerHTML = `
+                            <div class="section-content">
+                                <div class="section-header">
+                                    <h2>👤 ユーザー設定</h2>
+                                    <p>プロフィールと設定を管理</p>
+                                </div>
+                                <div class="user-profile">
+                                    <div class="profile-section">
+                                        <h3>プロフィール</h3>
+                                        <div class="profile-item">
+                                            <label>表示名</label>
+                                            <input type="text" value="Learning X User" class="profile-input">
+                                        </div>
+                                        <div class="profile-item">
+                                            <label>メールアドレス</label>
+                                            <input type="email" value="user@example.com" class="profile-input">
+                                        </div>
+                                    </div>
+                                    <div class="settings-section">
+                                        <h3>設定</h3>
+                                        <div class="setting-item">
+                                            <label>ダークモード</label>
+                                            <input type="checkbox" checked>
+                                        </div>
+                                        <div class="setting-item">
+                                            <label>自動保存</label>
+                                            <input type="checkbox" checked>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                        break;
+                }
+            }
+
+            // Bind navigation events
+            elements.navItems.forEach(item => {
+                item.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    switchSection(item.dataset.section);
+                });
             });
 
             // API functions
