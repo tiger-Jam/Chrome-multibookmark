@@ -1,28 +1,26 @@
-use thirtyfour::prelude::*;
+use reqwest::Client;
+use scraper::{Html, Selector};
 use std::time::Duration;
 use tokio::time::sleep;
 use crate::models::*;
 
 pub struct WebScraper {
-    driver: Option<WebDriver>,
+    client: Client,
 }
 
 impl WebScraper {
     pub fn new() -> Self {
-        Self { driver: None }
+        let client = Client::builder()
+            .timeout(Duration::from_secs(30))
+            .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
+            .build()
+            .unwrap();
+
+        Self { client }
     }
 
     pub async fn initialize(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        println!("Initializing WebDriver...");
-
-        let caps = DesiredCapabilities::chrome();
-        let driver = WebDriver::new("http://localhost:9515", caps).await?;
-
-        // Set timeouts
-        driver.set_implicit_wait_timeout(Duration::from_secs(10)).await?;
-
-        self.driver = Some(driver);
-        println!("WebDriver initialized successfully");
+        println!("HTTP client initialized successfully");
         Ok(())
     }
 
@@ -31,41 +29,39 @@ impl WebScraper {
         query: &str,
         max_results: usize,
     ) -> Result<Vec<String>, Box<dyn std::error::Error>> {
-        let driver = self.driver.as_ref().ok_or("WebDriver not initialized")?;
-
         println!("Searching for: {}", query);
 
-        // Navigate to Google
-        driver.goto("https://www.google.com").await?;
-
-        // Find search box and enter query
-        let search_box = driver.find(By::Name("q")).await?;
-        search_box.clear().await?;
-        search_box.send_keys(query).await?;
-        search_box.send_keys(Key::Return).await?;
-
-        // Wait for results to load
-        sleep(Duration::from_secs(3)).await;
-
-        // Collect search result links
         let mut links = Vec::new();
-        let result_elements = driver.find_all(By::Css("h3")).await?;
 
-        for (i, element) in result_elements.iter().enumerate() {
-            if i >= max_results {
-                break;
-            }
+        // WikipediaのURLを生成
+        let encoded_query = urlencoding::encode(query);
 
-            // Try to find the parent link
-            if let Ok(link_element) = element.find(By::XPath("./ancestor::a")).await {
-                if let Ok(href) = link_element.attr("href").await {
-                    if let Some(url) = href {
-                        if url.starts_with("http") && !url.contains("google.com") {
-                            println!("Found link: {}", url);
-                            links.push(url);
+        // 1. Wikipedia日本語版の検索
+        let wiki_search_url = format!("https://ja.wikipedia.org/w/api.php?action=opensearch&search={}&limit={}&namespace=0&format=json", encoded_query, max_results.min(5));
+
+        if let Ok(response) = self.client.get(&wiki_search_url).send().await {
+            if let Ok(text) = response.text().await {
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) {
+                    if let Some(titles) = json.get(1).and_then(|v| v.as_array()) {
+                        for title in titles.iter().take(max_results) {
+                            if let Some(title_str) = title.as_str() {
+                                let wiki_url = format!("https://ja.wikipedia.org/wiki/{}",
+                                    urlencoding::encode(title_str));
+                                println!("Found Wikipedia link: {}", wiki_url);
+                                links.push(wiki_url);
+                            }
                         }
                     }
                 }
+            }
+        }
+
+        // 2. 直接的なWikipediaページ検索も追加
+        let direct_wiki_url = format!("https://ja.wikipedia.org/wiki/{}", encoded_query);
+        if self.check_url_exists(&direct_wiki_url).await {
+            println!("Found direct Wikipedia link: {}", direct_wiki_url);
+            if !links.contains(&direct_wiki_url) {
+                links.push(direct_wiki_url);
             }
         }
 
@@ -73,22 +69,30 @@ impl WebScraper {
         Ok(links)
     }
 
-    pub async fn scrape_page_content(&self, url: &str) -> Result<ScrapedContent, Box<dyn std::error::Error>> {
-        let driver = self.driver.as_ref().ok_or("WebDriver not initialized")?;
+    async fn check_url_exists(&self, url: &str) -> bool {
+        match self.client.head(url).send().await {
+            Ok(response) => response.status().is_success(),
+            Err(_) => false,
+        }
+    }
 
+    pub async fn scrape_page_content(&self, url: &str) -> Result<ScrapedContent, Box<dyn std::error::Error>> {
         println!("Scraping content from: {}", url);
 
-        driver.goto(url).await?;
-        sleep(Duration::from_secs(2)).await;
+        let response = self.client.get(url).send().await?;
+        let html_content = response.text().await?;
+
+        let document = Html::parse_document(&html_content);
 
         // Extract title
-        let title = match driver.title().await {
-            Ok(t) => Some(t),
-            Err(_) => None,
-        };
+        let title_selector = Selector::parse("title")?;
+        let title = document.select(&title_selector)
+            .next()
+            .map(|element| element.text().collect::<String>().trim().to_string())
+            .filter(|s| !s.is_empty());
 
         // Extract main content
-        let content = self.extract_main_content(driver).await?;
+        let content = self.extract_main_content(&document);
 
         Ok(ScrapedContent {
             url: url.to_string(),
@@ -97,43 +101,54 @@ impl WebScraper {
         })
     }
 
-    async fn extract_main_content(&self, driver: &WebDriver) -> Result<String, Box<dyn std::error::Error>> {
-        // Try different content selectors
-        let selectors = [
+    fn extract_main_content(&self, document: &Html) -> String {
+        // Try different content selectors for Wikipedia and general websites
+        let selectors_str = [
+            "#mw-content-text",  // Wikipedia main content
+            ".mw-parser-output", // Wikipedia parser output
             "article",
             "main",
             ".content",
             "#content",
             ".post-content",
             ".entry-content",
-            "body",
         ];
 
-        for selector in &selectors {
-            if let Ok(element) = driver.find(By::Css(*selector)).await {
-                if let Ok(text) = element.text().await {
-                    if text.len() > 100 {
-                        // Return first 2000 characters to avoid too long content
-                        return Ok(text.chars().take(2000).collect());
+        for selector_str in &selectors_str {
+            if let Ok(selector) = Selector::parse(selector_str) {
+                if let Some(element) = document.select(&selector).next() {
+                    let text: String = element.text().collect::<Vec<_>>().join(" ");
+                    let cleaned_text = text.trim()
+                        .split_whitespace()
+                        .collect::<Vec<_>>()
+                        .join(" ");
+
+                    if cleaned_text.len() > 100 {
+                        // Return first 3000 characters to avoid too long content
+                        return cleaned_text.chars().take(3000).collect::<String>();
                     }
                 }
             }
         }
 
         // Fallback: get body text
-        if let Ok(body) = driver.find(By::Tag("body")).await {
-            if let Ok(text) = body.text().await {
-                return Ok(text.chars().take(2000).collect());
+        if let Ok(body_selector) = Selector::parse("body") {
+            if let Some(body) = document.select(&body_selector).next() {
+                let text: String = body.text().collect::<Vec<_>>().join(" ");
+                let cleaned_text = text.trim()
+                    .split_whitespace()
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                return cleaned_text.chars().take(3000).collect::<String>();
             }
         }
 
-        Ok("Could not extract content".to_string())
+        "Could not extract content".to_string()
     }
 
     pub async fn close(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        if let Some(driver) = self.driver.take() {
-            driver.quit().await?;
-        }
+        // HTTP client doesn't need explicit cleanup
+        println!("HTTP client closed");
         Ok(())
     }
 }

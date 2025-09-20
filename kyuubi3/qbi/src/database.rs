@@ -261,4 +261,63 @@ impl Database {
 
         Ok(resources)
     }
+
+    // Get subtopic with topic information for scraping
+    pub async fn get_subtopic_with_topic(&self, subtopic_id: &str) -> Result<Option<SubTopicWithTopic>, sqlx::Error> {
+        let row = sqlx::query(
+            "SELECT st.id, st.name, st.template_type, t.name as topic_name
+             FROM subtopics st
+             JOIN topics t ON st.topic_id = t.id
+             WHERE st.id = ?"
+        )
+        .bind(subtopic_id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        match row {
+            Some(row) => Ok(Some(SubTopicWithTopic {
+                id: row.get("id"),
+                name: row.get("name"),
+                topic_name: row.get("topic_name"),
+                template_type: row.get("template_type"),
+            })),
+            None => Ok(None),
+        }
+    }
+
+    // Update resource stock with scraped content
+    pub async fn update_resource_stock_content(
+        &self,
+        id: &str,
+        title: Option<&str>,
+        summary: Option<&str>,
+        scraped_content: &str,
+        status: &str,
+    ) -> Result<bool, sqlx::Error> {
+        let now = chrono::Utc::now();
+
+        let result = sqlx::query(
+            "UPDATE resource_stocks
+             SET title = ?, summary = ?, scraped_content = ?, status = ?, updated_at = ?
+             WHERE id = ?"
+        )
+        .bind(title)
+        .bind(summary)
+        .bind(scraped_content)
+        .bind(status)
+        .bind(&now)
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(result.rows_affected() > 0)
+    }
+}
+
+#[derive(Debug)]
+pub struct SubTopicWithTopic {
+    pub id: String,
+    pub name: String,
+    pub topic_name: String,
+    pub template_type: Option<String>,
 }

@@ -1,15 +1,7 @@
 'use client';
 
-import dynamic from 'next/dynamic';
 import { useSession, signIn } from 'next-auth/react';
-
-const KyuubiWorkspace = dynamic(() => import('@/components/KyuubiWorkspace'), {
-  loading: () => (
-    <div className="h-screen flex items-center justify-center bg-slate-900">
-      <div className="text-white text-xl">Loading Kyuubi Workspace...</div>
-    </div>
-  ),
-});
+import KyuubiWorkspace from '@/components/KyuubiWorkspace';
 
 export default function Home() {
   const { data: session, status } = useSession();

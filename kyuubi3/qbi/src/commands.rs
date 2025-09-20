@@ -1,7 +1,7 @@
 use tauri::State;
-use crate::database::Database;
+use crate::database::{Database, SubTopicWithTopic};
 use crate::models::*;
-use crate::scraper::generate_search_query;
+use crate::scraper::{generate_search_query, WebScraper};
 
 #[tauri::command]
 pub async fn get_topics(db: State<'_, Database>) -> Result<Vec<Topic>, String> {
@@ -63,17 +63,20 @@ pub async fn start_scraping(
     db: State<'_, Database>,
     subtopic_ids: Vec<String>,
 ) -> Result<String, String> {
-    println!("Starting scraping for subtopics: {:?}", subtopic_ids);
+    println!("Starting real scraping for subtopics: {:?}", subtopic_ids);
 
-    // For now, simulate scraping without WebDriver to avoid thread safety issues
-    // This can be improved later with proper async WebDriver setup
-    let mut total_links = 0;
+    let mut scraper = WebScraper::new();
+    if let Err(e) = scraper.initialize().await {
+        return Err(format!("Failed to initialize scraper: {}", e));
+    }
+
+    let mut total_scraped = 0;
 
     for subtopic_id in subtopic_ids {
         println!("Processing subtopic: {}", subtopic_id);
 
         // Get subtopic details to generate search query
-        if let Ok(subtopic) = get_subtopic_details(&db, &subtopic_id).await {
+        if let Ok(Some(subtopic)) = db.get_subtopic_with_topic(&subtopic_id).await {
             let search_query = generate_search_query(
                 &subtopic.topic_name,
                 &subtopic.name,
@@ -82,43 +85,64 @@ pub async fn start_scraping(
 
             println!("Generated search query: {}", search_query);
 
-            // Simulate some example URLs for now
-            let example_urls = vec![
-                format!("https://ja.wikipedia.org/wiki/{}", urlencoding::encode(&subtopic.topic_name)),
-                format!("https://example.com/search?q={}", urlencoding::encode(&search_query)),
-                format!("https://docs.example.com/{}", urlencoding::encode(&subtopic.name)),
-            ];
+            // Search for links
+            match scraper.search_and_collect_links(&search_query, 3).await {
+                Ok(urls) => {
+                    for url in urls {
+                        // Create resource stock entry
+                        match db.create_resource_stock(&subtopic_id, &url).await {
+                            Ok(resource) => {
+                                // Scrape content from the URL
+                                match scraper.scrape_page_content(&url).await {
+                                    Ok(scraped_content) => {
+                                        // Update resource with scraped content
+                                        let summary = scraped_content.content
+                                            .chars()
+                                            .take(200)
+                                            .collect::<String>();
 
-            // Store simulated links in database
-            for url in example_urls {
-                if let Err(e) = db.create_resource_stock(&subtopic_id, &url).await {
-                    println!("Failed to store resource: {}", e);
-                } else {
-                    total_links += 1;
+                                        if let Err(e) = db.update_resource_stock_content(
+                                            &resource.id,
+                                            scraped_content.title.as_deref(),
+                                            Some(&summary),
+                                            &scraped_content.content,
+                                            "completed"
+                                        ).await {
+                                            println!("Failed to update resource content: {}", e);
+                                        } else {
+                                            total_scraped += 1;
+                                            println!("Successfully scraped: {}", url);
+                                        }
+                                    }
+                                    Err(e) => {
+                                        println!("Failed to scrape {}: {}", url, e);
+                                        let _ = db.update_resource_stock_content(
+                                            &resource.id,
+                                            None,
+                                            None,
+                                            &format!("Error: {}", e),
+                                            "failed"
+                                        ).await;
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                println!("Failed to create resource stock: {}", e);
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    println!("Failed to search for links: {}", e);
                 }
             }
+        } else {
+            println!("Failed to get subtopic details for: {}", subtopic_id);
         }
     }
 
-    Ok(format!("Scraping completed. Collected {} links", total_links))
+    let _ = scraper.close().await;
+
+    Ok(format!("Scraping completed. Successfully scraped {} resources", total_scraped))
 }
 
-// Helper function to get subtopic with topic name
-async fn get_subtopic_details(_db: &Database, subtopic_id: &str) -> Result<SubTopicWithTopic, String> {
-    // This would require a new method in database.rs
-    // For now, return a mock
-    Ok(SubTopicWithTopic {
-        id: subtopic_id.to_string(),
-        name: "Mock SubTopic".to_string(),
-        topic_name: "Mock Topic".to_string(),
-        template_type: Some("trivia".to_string()),
-    })
-}
-
-#[derive(Debug)]
-struct SubTopicWithTopic {
-    id: String,
-    name: String,
-    topic_name: String,
-    template_type: Option<String>,
-}

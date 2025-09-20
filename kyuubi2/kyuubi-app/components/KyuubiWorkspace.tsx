@@ -163,30 +163,35 @@ export default function KyuubiWorkspace() {
 
   return (
     <div className={`h-screen flex ${isDarkMode ? 'dark bg-slate-900' : 'bg-white'}`}>
-      {/* 左サイドバー: Tail管理 */}
-      <div className={`transition-all duration-300 ${isSidebarCollapsed ? 'w-0' : 'w-64'} flex-shrink-0`}>
+      {/* 左サイドバー: Tail管理 + 記事ツリー */}
+      <div className={`transition-all duration-300 ${isSidebarCollapsed ? 'w-0' : 'w-80'} flex-shrink-0`}>
         {!isSidebarCollapsed && (
-          <TailSidebar
-            currentTailId={currentTail?.id}
-            onTailSelect={handleTailSelect}
-            onNewTail={handleNewTail}
-            isDarkMode={isDarkMode}
-          />
+          <div className="h-full flex flex-col border-r border-slate-600">
+            {/* 上部: Tail管理 */}
+            <div className="flex-shrink-0">
+              <TailSidebar
+                currentTailId={currentTail?.id}
+                onTailSelect={handleTailSelect}
+                onNewTail={handleNewTail}
+                isDarkMode={isDarkMode}
+              />
+            </div>
+            
+            {/* 下部: 記事ツリー */}
+            {currentTail && (
+              <div className="flex-1 border-t border-slate-600">
+                <ArticleTreeView
+                  tailId={currentTail.id}
+                  currentArticleId={currentArticle?.id}
+                  onArticleSelect={handleArticleSelect}
+                  onNewArticle={handleNewArticle}
+                  isDarkMode={isDarkMode}
+                />
+              </div>
+            )}
+          </div>
         )}
       </div>
-
-      {/* 中央サイドバー: 記事ツリー */}
-      {currentTail && (
-        <div className="w-80 flex-shrink-0 border-r border-slate-600">
-          <ArticleTreeView
-            tailId={currentTail.id}
-            currentArticleId={currentArticle?.id}
-            onArticleSelect={handleArticleSelect}
-            onNewArticle={handleNewArticle}
-            isDarkMode={isDarkMode}
-          />
-        </div>
-      )}
 
       {/* メインエリア */}
       <div className="flex-1 flex flex-col">
