@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body {
+      width: 300px;
+      padding: 16px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+
+    .header {
+      margin-bottom: 16px;
+      text-align: center;
+    }
+
+    .header h2 {
+      margin: 0;
+      color: #333;
+      font-size: 16px;
+    }
+
+    .current-set {
+      background: #e3f2fd;
+      padding: 8px 12px;
+      border-radius: 4px;
+      margin-bottom: 16px;
+      border-left: 4px solid #2196f3;
+    }
+
+    .set-list {
+      margin-bottom: 16px;
+    }
+
+    .set-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 12px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      margin-bottom: 8px;
+      cursor: pointer;
+      transition: background-color 0.2s;
+    }
+
+
+    .set-item:hover {
+      background-color: #f5f5f5;
+    }
+
+    .set-item.active {
+      background-color: #e8f5e8;
+      border-color: #4caf50;
+    }
+
+    .set-name {
+      font-weight: 500;
+    }
+
+    .bookmark-count {
+      font-size: 12px;
+      color: #666;
+      background: #f0f0f0;
+      padding: 2px 6px;
+      border-radius: 12px;
+    }
+
+    .controls {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .btn {
+      flex: 1;
+      padding: 8px 12px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 12px;
+      transition: background-color 0.2s;
+    }
+
+    .btn-primary {
+      background: #2196f3;
+      color: white;
+    }
+
+    .btn-primary:hover {
+      background: #1976d2;
+    }
+
+    .btn-secondary {
+      background: #f5f5f5;
+      color: #333;
+      border: 1px solid #ddd;
+    }
+
+    .btn-secondary:hover {
+      background: #eeeeee;
+    }
+
+    .input-group {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .input {
+      flex: 1;
+      padding: 6px 8px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 12px;
+    }
+
+    .status {
+      text-align: center;
+      padding: 8px;
+      font-size: 12px;
+      border-radius: 4px;
+      margin-top: 8px;
+    }
+
+    .status.success {
+      background: #e8f5e8;
+      color: #2e7d2e;
+    }
+
+    .status.error {
+      background: #ffebee;
+      color: #c62828;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h2>Multi Bookmark Manager</h2>
+  </div>
+
+  <div class="current-set">
+    <div>現在のセット: <span id="current-set-name">--</span></div>
+  </div>
+
+  <div class="controls">
+    <button class="btn btn-primary" id="save-current">現在を保存</button>
+    <button class="btn btn-secondary" id="load-set">セット適用</button>
+  </div>
+
+  <div class="input-group">
+    <input type="text" class="input" id="new-set-name" placeholder="新しいセット名">
+    <button class="btn btn-primary" id="create-set">作成</button>
+  </div>
+
+  <div class="set-list" id="set-list">
+    <!-- セット一覧がここに表示される -->
+  </div>
+
+  <div id="status" class="status" style="display: none;"></div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
